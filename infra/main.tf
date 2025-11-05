@@ -23,7 +23,7 @@ resource "random_id" "rand" {
 }
 
 # ------------------------------
-# 1️⃣ Resource Group
+# Resource Group
 # ------------------------------
 resource "azurerm_resource_group" "main" {
   name     = "azure-cloud-resume-rg"
@@ -31,7 +31,7 @@ resource "azurerm_resource_group" "main" {
 }
 
 # ------------------------------
-# 2️⃣ Storage Account + Blob container
+# Storage Account + Blob container
 # ------------------------------
 resource "azurerm_storage_account" "static" {
   name                     = "crcstorage${random_id.rand.hex}"
@@ -48,7 +48,7 @@ resource "azurerm_storage_container" "static" {
 }
 
 # ------------------------------
-# 3️⃣ Cosmos DB
+# Cosmos DB
 # ------------------------------
 resource "azurerm_cosmosdb_account" "main" {
   name                = "crccosmos${random_id.rand.hex}"
@@ -67,6 +67,38 @@ resource "azurerm_cosmosdb_account" "main" {
 }
 
 # ------------------------------
-# 4️⃣ Function App Plan
+# Function App Plan
 # ------------------------------
-resource "azurerm_app_service_plan" "pl_
+resource "azurerm_app_service_plan" "plan" {
+  name                = "crc-func-plan-${random_id.rand.hex}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  kind                = "FunctionApp"
+  sku {
+    tier = "Dynamic"
+    size = "Y1"
+  }
+}
+
+# ------------------------------
+# Function App
+# ------------------------------
+resource "azurerm_function_app" "visitor" {
+  name                       = "crc-visitor-func-${random_id.rand.hex}"
+  location                   = azurerm_resource_group.main.location
+  resource_group_name        = azurerm_resource_group.main.name
+  app_service_plan_id        = azurerm_app_service_plan.plan.id
+  storage_account_name       = azurerm_storage_account.static.name
+  storage_account_access_key = azurerm_storage_account.static.primary_access_key
+  version                    = "~4"
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  site_config {
+    application_stack {
+      dotnet_version = "dotnet-isolated-7.0"
+    }
+  }
+}
