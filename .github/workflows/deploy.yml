@@ -1,4 +1,4 @@
-name: Azure Cloud Resume Backend Deployment
+name: Deploy Azure Cloud Resume Backend
 
 on:
   push:
@@ -9,80 +9,68 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout Repo
+      uses: actions/checkout@v4
 
-      # 2️⃣ Setup Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.0
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.5.0
 
-      # 3️⃣ Azure Login
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 4️⃣ Terraform Apply
-      - name: Terraform Init & Apply
-        working-directory: infra
-        shell: pwsh
-        run: |
-          terraform init
-          terraform apply -auto-approve
-          terraform show
+    - name: Terraform Init & Apply
+      working-directory: infra
+      shell: pwsh
+      run: |
+        terraform init
+        terraform apply -auto-approve
+        terraform show
 
-      # 5️⃣ Capture Terraform Outputs
-      - name: Terraform Outputs to Env
-        shell: pwsh
-        working-directory: infra
-        run: |
-          $rg = terraform output -raw resource_group_name
-          $funcName = terraform output -raw function_app_name
-          $blobAccount = terraform output -raw blob_account_name
-          $cosmosName = terraform output -raw cosmosdb_account_name
+    - name: Get Terraform Outputs
+      working-directory: infra
+      shell: pwsh
+      run: |
+        $rg = terraform output -raw resource_group_name
+        $func = terraform output -raw function_app_name
+        $blob = terraform output -raw blob_account_name
+        $cosmos = terraform output -raw cosmosdb_account_name
 
-          Write-Host "Terraform Outputs:"
-          Write-Host "Resource Group: $rg"
-          Write-Host "Function App: $funcName"
-          Write-Host "Blob Account: $blobAccount"
-          Write-Host "Cosmos DB Account: $cosmosName"
+        Write-Host "Terraform Outputs:"
+        Write-Host "Resource Group: $rg"
+        Write-Host "Function App: $func"
+        Write-Host "Blob Account: $blob"
+        Write-Host "Cosmos DB: $cosmos"
 
-          if (-not $rg -or -not $funcName -or -not $blobAccount) {
-            throw "Terraform outputs are empty! Deployment cannot continue."
-          }
+        if (-not $rg -or -not $func -or -not $blob) {
+          throw "Terraform outputs are empty!"
+        }
 
-          Add-Content -Path $env:GITHUB_ENV -Value "resource_group_name=$rg"
-          Add-Content -Path $env:GITHUB_ENV -Value "function_app_name=$funcName"
-          Add-Content -Path $env:GITHUB_ENV -Value "blob_account_name=$blobAccount"
-          Add-Content -Path $env:GITHUB_ENV -Value "cosmosdb_account_name=$cosmosName"
+        Add-Content -Path $env:GITHUB_ENV -Value "resource_group_name=$rg"
+        Add-Content -Path $env:GITHUB_ENV -Value "function_app_name=$func"
+        Add-Content -Path $env:GITHUB_ENV -Value "blob_account_name=$blob"
+        Add-Content -Path $env:GITHUB_ENV -Value "cosmosdb_account_name=$cosmos"
 
-      # 6️⃣ Package Function App
-      - name: Package Function App
-        shell: pwsh
-        run: |
-          Compress-Archive -Path function_app/* -DestinationPath functionapp.zip -Force
+    - name: Package Function App
+      shell: pwsh
+      run: Compress-Archive -Path function_app/* -DestinationPath functionapp.zip -Force
 
-      # 7️⃣ Deploy Function App
-      - name: Deploy Function App
-        shell: pwsh
-        run: |
-          Write-Host "Deploying Function App $env:function_app_name in Resource Group $env:resource_group_name"
-          az functionapp deployment source config-zip `
-            --resource-group $env:resource_group_name `
-            --name $env:function_app_name `
-            --src functionapp.zip
+    - name: Deploy Function App
+      shell: pwsh
+      run: |
+        az functionapp deployment source config-zip `
+          --resource-group $env:resource_group_name `
+          --name $env:function_app_name `
+          --src functionapp.zip
 
-      # 8️⃣ Upload static files to Blob Storage
-      - name: Upload Static Files
-        shell: pwsh
-        run: |
-          $containerName = "static"
-          Write-Host "Uploading static files to Blob Storage account $env:blob_account_name / $containerName"
-          az storage blob upload-batch `
-            --account-name $env:blob_account_name `
-            --destination $containerName `
-            --source static `
-            --overwrite
+    - name: Upload Static Files
+      shell: pwsh
+      run: |
+        az storage blob upload-batch `
+          --account-name $env:blob_account_name `
+          --destination static `
+          --source static `
+          --overwrite
