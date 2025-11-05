@@ -33,24 +33,9 @@ jobs:
           terraform init
           terraform apply -auto-approve
 
-      # 5️⃣ Save Terraform outputs as env variables
+      # 5️⃣ Save Terraform outputs as environment variables
       - name: Terraform Outputs to Env
         shell: pwsh
         run: |
           cd infra
-          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> $GITHUB_ENV
-          echo "function_app_name=$(terraform output -raw function_app_name)" >> $GITHUB_ENV
-          echo "blob_account_name=$(terraform output -raw blob_static_url | Split-Path -Leaf)" >> $GITHUB_ENV
-
-      # 6️⃣ Package Function App
-      - name: Package Function App
-        shell: pwsh
-        run: |
-          cd function_app
-          Compress-Archive -Path * -DestinationPath ../functionapp.zip -Force
-
-      # 7️⃣ Deploy Function App
-      - name: Deploy Function App
-        shell: pwsh
-        run: |
-          Write-
+          $rg = terraform output -raw resource_group_name
