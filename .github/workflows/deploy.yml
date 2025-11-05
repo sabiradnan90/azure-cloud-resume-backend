@@ -7,41 +7,50 @@ on:
 jobs:
   deploy:
     runs-on: windows-latest
+
     steps:
-      - name: Checkout repo
+      # 1️⃣ Checkout the repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Set up Terraform
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
 
+      # 3️⃣ Azure Login using secret
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # 4️⃣ Terraform Init & Apply
       - name: Terraform Init & Apply
+        shell: pwsh
         run: |
           cd infra
           terraform init
           terraform apply -auto-approve
 
-      - name: Build Function zip
+      # 5️⃣ Save Terraform outputs as env variables
+      - name: Terraform Outputs to Env
+        shell: pwsh
+        run: |
+          cd infra
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> $GITHUB_ENV
+          echo "function_app_name=$(terraform output -raw function_app_name)" >> $GITHUB_ENV
+          echo "blob_account_name=$(terraform output -raw blob_static_url | Split-Path -Leaf)" >> $GITHUB_ENV
+
+      # 6️⃣ Package Function App
+      - name: Package Function App
+        shell: pwsh
         run: |
           cd function_app
-          Compress-Archive -Path * -DestinationPath ../functionapp.zip
+          Compress-Archive -Path * -DestinationPath ../functionapp.zip -Force
 
-      - name: Deploy Function
+      # 7️⃣ Deploy Function App
+      - name: Deploy Function App
+        shell: pwsh
         run: |
-          cd ..
-          $RG=$(terraform -chdir=infra output -raw resource_group_name)
-          $FUNC_NAME=$(terraform -chdir=infra output -raw function_app_name)
-          az functionapp deployment source config-zip --resource-group $RG --name $FUNC_NAME --src functionapp.zip
-
-      - name: Upload Static Files to Blob
-        run: |
-          cd ..
-          $BLOB_ACCOUNT=$(terraform -chdir=infra output -raw blob_static_url | Split-Path -Leaf)
-          $CONTAINER_NAME=static
-          az storage blob upload-batch --account-name $BLOB_ACCOUNT --destination $CONTAINER_NAME --source static --overwrite
+          Write-
