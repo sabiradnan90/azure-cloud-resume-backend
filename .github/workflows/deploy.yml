@@ -1,0 +1,47 @@
+name: Deploy Azure Backend
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform Init & Apply
+        run: |
+          cd infra
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Build Function zip
+        run: |
+          cd function_app
+          Compress-Archive -Path * -DestinationPath ../functionapp.zip
+
+      - name: Deploy Function
+        run: |
+          cd ..
+          $RG=$(terraform -chdir=infra output -raw resource_group_name)
+          $FUNC_NAME=$(terraform -chdir=infra output -raw function_app_name)
+          az functionapp deployment source config-zip --resource-group $RG --name $FUNC_NAME --src functionapp.zip
+
+      - name: Upload Static Files to Blob
+        run: |
+          cd ..
+          $BLOB_ACCOUNT=$(terraform -chdir=infra output -raw blob_static_url | Split-Path -Leaf)
+          $CONTAINER_NAME=static
+          az storage blob upload-batch --account-name $BLOB_ACCOUNT --destination $CONTAINER_NAME --source static --overwrite
