@@ -10,7 +10,7 @@ jobs:
 
     steps:
       # 1️⃣ Checkout repository
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       # 2️⃣ Set up Terraform
@@ -19,13 +19,13 @@ jobs:
         with:
           terraform_version: 1.5.0
 
-      # 3️⃣ Azure login using service principal secret
+      # 3️⃣ Azure login using secret
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 4️⃣ Terraform Init & Apply (creates RG, Storage, Cosmos DB, Function App)
+      # 4️⃣ Terraform Init & Apply
       - name: Terraform Init & Apply
         working-directory: infra
         shell: pwsh
@@ -33,19 +33,27 @@ jobs:
           terraform init
           terraform apply -auto-approve
 
-      # 5️⃣ Save Terraform outputs as environment variables
+      # 5️⃣ Terraform Outputs to Environment
       - name: Terraform Outputs to Env
         shell: pwsh
         working-directory: infra
         run: |
           $rg = terraform output -raw resource_group_name
           $funcName = terraform output -raw function_app_name
-          $blobUrl = terraform output -raw blob_static_url
-          $blobAccount = [System.Uri]::new($blobUrl).Host.Split('.')[0]
+          $blobAccount = terraform output -raw blob_account_name
+          $cosmosName = terraform output -raw cosmosdb_account_name
 
+          Write-Host "Terraform Outputs:"
+          Write-Host "Resource Group: $rg"
+          Write-Host "Function App: $funcName"
+          Write-Host "Blob Account: $blobAccount"
+          Write-Host "Cosmos DB Account: $cosmosName"
+
+          # Save to GitHub environment
           echo "resource_group_name=$rg" >> $env:GITHUB_ENV
           echo "function_app_name=$funcName" >> $env:GITHUB_ENV
           echo "blob_account_name=$blobAccount" >> $env:GITHUB_ENV
+          echo "cosmosdb_account_name=$cosmosName" >> $env:GITHUB_ENV
 
       # 6️⃣ Package Function App
       - name: Package Function App
@@ -63,7 +71,7 @@ jobs:
             --name $env:function_app_name `
             --src functionapp.zip
 
-      # 8️⃣ Upload static files (index.html + PDF) to Blob Storage
+      # 8️⃣ Upload static files to Blob Storage
       - name: Upload Static Files
         shell: pwsh
         run: |

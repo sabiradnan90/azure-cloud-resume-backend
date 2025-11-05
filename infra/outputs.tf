@@ -1,4 +1,15 @@
-output "resource_group_name" { value = azurerm_resource_group.rg.name }
-output "function_app_name" { value = azurerm_function_app.func.name }
-output "function_default_hostname" { value = azurerm_function_app.func.default_hostname }
-output "blob_static_url" { value = "https://${azurerm_storage_account.blob_sa.name}.blob.core.windows.net/${azurerm_storage_container.static_files.name}/" }
+output "resource_group_name" {
+  value = azurerm_resource_group.main.name
+}
+
+output "function_app_name" {
+  value = azurerm_function_app.visitor.name
+}
+
+output "blob_account_name" {
+  value = azurerm_storage_account.static.name
+}
+
+output "cosmosdb_account_name" {
+  value = azurerm_cosmosdb_account.main.name
+}
