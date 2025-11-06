@@ -6,10 +6,10 @@ on:
 
 jobs:
   deploy:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout the repository
+    # 1️⃣ Checkout code
     - name: Checkout Repo
       uses: actions/checkout@v4
 
@@ -19,7 +19,7 @@ jobs:
       with:
         terraform_version: 1.5.0
 
-    # 3️⃣ Login to Azure
+    # 3️⃣ Azure Login
     - name: Azure Login
       uses: azure/login@v2
       with:
@@ -35,7 +35,7 @@ jobs:
       working-directory: infra
       run: terraform apply -auto-approve
 
-    # 6️⃣ Fetch Terraform Outputs safely
+    # 6️⃣ Fetch Terraform Outputs
     - name: Get Terraform Outputs
       working-directory: infra
       run: |
@@ -48,8 +48,8 @@ jobs:
         echo "blob_account_name=$(terraform output -raw blob_account_name)" >> $GITHUB_ENV
         echo "cosmosdb_account_name=$(terraform output -raw cosmosdb_account_name)" >> $GITHUB_ENV
 
-    # 7️⃣ Debug outputs (optional, recommended for first run)
-    - name: Debug Terraform Outputs
+    # 7️⃣ Debug Terraform Outputs
+    - name: Debug Outputs
       run: |
         echo "Resource Group: ${{ env.resource_group_name }}"
         echo "Function App: ${{ env.function_app_name }}"
@@ -58,33 +58,29 @@ jobs:
 
     # 8️⃣ Package Function App
     - name: Package Function App
-      shell: pwsh
-      run: Compress-Archive -Path function_app/* -DestinationPath functionapp.zip -Force
+      run: zip -r functionapp.zip function_app/*
 
-    # 9️⃣ Deploy Function App (only if outputs exist)
+    # 9️⃣ Deploy Function App
     - name: Deploy Function App
-      shell: pwsh
       run: |
-        if (-not $env:resource_group_name -or -not $env:function_app_name) {
-          Write-Error "Missing required environment variables for deployment. Exiting."
+        if [ -z "${{ env.resource_group_name }}" ] || [ -z "${{ env.function_app_name }}" ]; then
+          echo "Required environment variables are missing. Exiting."
           exit 1
-        }
+        fi
 
-        az functionapp deployment source config-zip `
-          --resource-group $env:resource_group_name `
-          --name $env:function_app_name `
+        az functionapp deployment source config-zip \
+          --resource-group ${{ env.resource_group_name }} \
+          --name ${{ env.function_app_name }} \
           --src functionapp.zip
 
-    # 🔟 Upload Static Files to Blob Storage (only if blob_account_name exists)
+    # 🔟 Upload Static Files to Blob Storage
     - name: Upload Static Files
-      shell: pwsh
       run: |
-        if (-not $env:blob_account_name) {
-          Write-Warning "Blob account name missing. Skipping static files upload."
-        } else {
-          az storage blob upload-batch `
-            --account-name $env:blob_account_name `
-            --destination static `
-            --source static `
+        if [ -z "${{ env.blob_account_name }}" ]; then
+          echo "Blob account name missing. Skipping static files upload."
+        else
+          az storage blob upload-batch \
+            --account-name ${{ env.blob_account_name }} \
+            --destination static \
+            --source static \
             --overwrite
-        }

@@ -15,6 +15,16 @@ provider "azurerm" {
   features {}
 }
 
+# Remote backend (optional but recommended)
+# terraform {
+#   backend "azurerm" {
+#     resource_group_name  = "terraform-backend-rg"
+#     storage_account_name = "terraformbackendstorage"
+#     container_name       = "tfstate"
+#     key                  = "cloud-resume.tfstate"
+#   }
+# }
+
 # Random ID for globally unique names
 resource "random_id" "rand" {
   byte_length = 4
@@ -48,9 +58,11 @@ resource "azurerm_cosmosdb_account" "main" {
   resource_group_name = azurerm_resource_group.main.name
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
+
   consistency_policy {
     consistency_level = "Session"
   }
+
   geo_location {
     location          = azurerm_resource_group.main.location
     failover_priority = 0
@@ -63,6 +75,7 @@ resource "azurerm_app_service_plan" "plan" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   kind                = "FunctionApp"
+
   sku {
     tier = "Dynamic"
     size = "Y1"
