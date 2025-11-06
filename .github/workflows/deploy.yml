@@ -8,7 +8,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # Fixed random ID for predictable names
+      # Predefined resource names (replace RANDOM_ID if you want dynamic)
       RANDOM_ID: c10c3c55
       RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
       FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
@@ -16,30 +16,22 @@ jobs:
       COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout Repo
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 2️⃣ Set Azure SP credentials
-      - name: Set Azure SP credentials
-        run: |
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
-
-      # 3️⃣ Setup Terraform
+      # 2️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
 
-      # 4️⃣ Terraform Init
+      # 3️⃣ Terraform Init
       - name: Terraform Init
         working-directory: infra
         run: terraform init -input=false
 
-      # 5️⃣ Terraform Plan (detect changes)
+      # 4️⃣ Terraform Plan (detect changes)
       - name: Terraform Plan
         id: plan
         working-directory: infra
@@ -49,7 +41,7 @@ jobs:
           # exit_code: 0 = no changes, 2 = changes, 1 = error
           echo "plan_exit_code=${exit_code:-0}" >> $GITHUB_ENV
 
-      # 6️⃣ Terraform Apply (only if changes)
+      # 5️⃣ Terraform Apply (only if changes)
       - name: Terraform Apply
         if: env.plan_exit_code == '2'
         working-directory: infra
@@ -59,19 +51,17 @@ jobs:
         if: env.plan_exit_code != '2'
         run: echo "No infrastructure changes detected. Skipping Terraform apply."
 
-      # 7️⃣ Verify resource names
-      - name: Verify Resources
-        run: |
-          echo "Resource Group: $RESOURCE_GROUP_NAME"
-          echo "Function App: $FUNCTION_APP_NAME"
-          echo "Blob Account: $BLOB_ACCOUNT_NAME"
-          echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
+      # 6️⃣ Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 8️⃣ Package Function App
+      # 7️⃣ Package Function App
       - name: Package Function App
         run: zip -r functionapp.zip function_app/*
 
-      # 9️⃣ Deploy Function App
+      # 8️⃣ Deploy Function App
       - name: Deploy Function App
         run: |
           az functionapp deployment source config-zip \
@@ -79,7 +69,7 @@ jobs:
             --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      # 🔟 Upload Static Files
+      # 9️⃣ Upload Static Files
       - name: Upload Static Files
         run: |
           az storage blob upload-batch \
@@ -87,3 +77,11 @@ jobs:
             --destination static \
             --source static \
             --overwrite
+
+      # 🔟 Verify Resources
+      - name: Verify Resources
+        run: |
+          echo "Resource Group: $RESOURCE_GROUP_NAME"
+          echo "Function App: $FUNCTION_APP_NAME"
+          echo "Blob Account: $BLOB_ACCOUNT_NAME"
+          echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
