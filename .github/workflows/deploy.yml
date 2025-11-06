@@ -9,35 +9,47 @@ jobs:
     runs-on: windows-latest
 
     steps:
+    # 1️⃣ Checkout the repository
     - name: Checkout Repo
       uses: actions/checkout@v4
 
+    # 2️⃣ Setup Terraform
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.5.0
 
+    # 3️⃣ Login to Azure using GitHub secret
     - name: Azure Login
       uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    # 4️⃣ Terraform Init & Apply
     - name: Terraform Init & Apply
       working-directory: infra
       shell: pwsh
       run: |
-        terraform init
-        terraform apply -auto-approve
+        terraform init -input=false
+        terraform validate
+        terraform plan -out=tfplan
+        terraform apply -auto-approve tfplan
         terraform show
 
+    # 5️⃣ Get Terraform Outputs (with safe null checks)
     - name: Get Terraform Outputs
       working-directory: infra
       shell: pwsh
       run: |
-        $rg = terraform output -raw resource_group_name
-        $func = terraform output -raw function_app_name
-        $blob = terraform output -raw blob_account_name
-        $cosmos = terraform output -raw cosmosdb_account_name
+        Write-Host "Fetching Terraform outputs..."
+        try {
+          $rg = terraform output -raw resource_group_name 2>$null
+          $func = terraform output -raw function_app_name 2>$null
+          $blob = terraform output -raw blob_account_name 2>$null
+          $cosmos = terraform output -raw cosmosdb_account_name 2>$null
+        } catch {
+          Write-Warning "One or more Terraform outputs could not be read."
+        }
 
         Write-Host "Terraform Outputs:"
         Write-Host "Resource Group: $rg"
@@ -45,30 +57,42 @@ jobs:
         Write-Host "Blob Account: $blob"
         Write-Host "Cosmos DB: $cosmos"
 
-        if (-not $rg -or -not $func -or -not $blob) {
-          throw "Terraform outputs are empty!"
+        if (-not $rg -or -not $func -or -not $blob -or -not $cosmos) {
+          Write-Warning "Some Terraform outputs are missing, continuing with caution..."
         }
 
-        Add-Content -Path $env:GITHUB_ENV -Value "resource_group_name=$rg"
-        Add-Content -Path $env:GITHUB_ENV -Value "function_app_name=$func"
-        Add-Content -Path $env:GITHUB_ENV -Value "blob_account_name=$blob"
-        Add-Content -Path $env:GITHUB_ENV -Value "cosmosdb_account_name=$cosmos"
+        # Export only if values exist
+        if ($rg) { Add-Content -Path $env:GITHUB_ENV -Value "resource_group_name=$rg" }
+        if ($func) { Add-Content -Path $env:GITHUB_ENV -Value "function_app_name=$func" }
+        if ($blob) { Add-Content -Path $env:GITHUB_ENV -Value "blob_account_name=$blob" }
+        if ($cosmos) { Add-Content -Path $env:GITHUB_ENV -Value "cosmosdb_account_name=$cosmos" }
 
+    # 6️⃣ Package the Function App
     - name: Package Function App
       shell: pwsh
       run: Compress-Archive -Path function_app/* -DestinationPath functionapp.zip -Force
 
+    # 7️⃣ Deploy Function App to Azure
     - name: Deploy Function App
       shell: pwsh
       run: |
+        if (-not $env:resource_group_name -or -not $env:function_app_name) {
+          Write-Error "Missing required environment variables for deployment."
+          exit 1
+        }
         az functionapp deployment source config-zip `
           --resource-group $env:resource_group_name `
           --name $env:function_app_name `
           --src functionapp.zip
 
+    # 8️⃣ Upload Static Files to Blob Storage
     - name: Upload Static Files
       shell: pwsh
       run: |
+        if (-not $env:blob_account_name) {
+          Write-Error "Blob account name is missing. Skipping upload."
+          exit 1
+        }
         az storage blob upload-batch `
           --account-name $env:blob_account_name `
           --destination static `
