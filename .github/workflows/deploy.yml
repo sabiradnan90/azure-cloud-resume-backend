@@ -7,13 +7,19 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      RANDOM_ID: c10c3c55 # Fixed random ID for predictable names
+      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+      BLOB_ACCOUNT_NAME: crcstoragec10c3c55
+      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
 
     steps:
-      # 1️⃣ Checkout Repo
+      # 1️⃣ Checkout repository
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 2️⃣ Set Azure SP credentials for Terraform backend
+      # 2️⃣ Set Azure SP credentials
       - name: Set Azure SP credentials
         run: |
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
@@ -32,62 +38,52 @@ jobs:
         working-directory: infra
         run: terraform init -input=false
 
-      # 5️⃣ Terraform Apply
+      # 5️⃣ Terraform Plan (detect changes)
+      - name: Terraform Plan
+        id: plan
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          terraform plan -out=tfplan.out
+          terraform show -json tfplan.out > tfplan.json
+          changes=$(jq '.resource_changes | length' tfplan.json)
+          echo "resource_changes=$changes" >> $GITHUB_ENV
+
+      # 6️⃣ Terraform Apply (only if changes)
       - name: Terraform Apply
+        if: env.resource_changes != '0'
         working-directory: infra
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve tfplan.out
 
-      # 6️⃣ Debug Terraform State
-      - name: List Terraform State
-        working-directory: infra
-        run: terraform state list
+      - name: Terraform Apply Skipped
+        if: env.resource_changes == '0'
+        run: echo "No infrastructure changes detected. Skipping Terraform apply."
 
-      # 7️⃣ Fetch Terraform Outputs
-      - name: Get Terraform Outputs
-        working-directory: infra
+      # 7️⃣ Verify resource names
+      - name: Verify Resources
         run: |
-          echo "Fetching Terraform outputs..."
-          terraform output -json > outputs.json
-          cat outputs.json
+          echo "Resource Group: $RESOURCE_GROUP_NAME"
+          echo "Function App: $FUNCTION_APP_NAME"
+          echo "Blob Account: $BLOB_ACCOUNT_NAME"
+          echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
 
-          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> $GITHUB_ENV
-          echo "function_app_name=$(terraform output -raw function_app_name)" >> $GITHUB_ENV
-          echo "blob_account_name=$(terraform output -raw blob_account_name)" >> $GITHUB_ENV
-          echo "cosmosdb_account_name=$(terraform output -raw cosmosdb_account_name)" >> $GITHUB_ENV
-
-      # 8️⃣ Debug Outputs
-      - name: Debug Outputs
-        run: |
-          echo "Resource Group: ${{ env.resource_group_name }}"
-          echo "Function App: ${{ env.function_app_name }}"
-          echo "Blob Account: ${{ env.blob_account_name }}"
-          echo "Cosmos DB: ${{ env.cosmosdb_account_name }}"
-
-      # 9️⃣ Package Function App
+      # 8️⃣ Package Function App
       - name: Package Function App
         run: zip -r functionapp.zip function_app/*
 
-      # 🔟 Deploy Function App
+      # 9️⃣ Deploy Function App
       - name: Deploy Function App
         run: |
-          if [ -z "${{ env.resource_group_name }}" ] || [ -z "${{ env.function_app_name }}" ]; then
-            echo "Required environment variables are missing. Exiting."
-            exit 1
-          fi
-
           az functionapp deployment source config-zip \
-            --resource-group ${{ env.resource_group_name }} \
-            --name ${{ env.function_app_name }} \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      # 1️⃣1️⃣ Upload Static Files
+      # 🔟 Upload Static Files to Storage Account
       - name: Upload Static Files
         run: |
-          if [ -z "${{ env.blob_account_name }}" ]; then
-            echo "Blob account name missing. Skipping upload."
-          else
-            az storage blob upload-batch \
-              --account-name ${{ env.blob_account_name }} \
-              --destination static \
-              --source static \
-              --overwrite
+          az storage blob upload-batch \
+            --account-name $BLOB_ACCOUNT_NAME \
+            --destination static \
+            --source static \
+            --overwrite
