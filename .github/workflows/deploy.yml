@@ -25,7 +25,7 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 4️⃣ Terraform Init
+    # 4️⃣ Terraform Init (with backend)
     - name: Terraform Init
       working-directory: infra
       run: terraform init -input=false
@@ -35,7 +35,12 @@ jobs:
       working-directory: infra
       run: terraform apply -auto-approve
 
-    # 6️⃣ Fetch Terraform Outputs
+    # 6️⃣ List Terraform State (debug)
+    - name: List Terraform State
+      working-directory: infra
+      run: terraform state list
+
+    # 7️⃣ Fetch Terraform Outputs
     - name: Get Terraform Outputs
       working-directory: infra
       run: |
@@ -48,7 +53,7 @@ jobs:
         echo "blob_account_name=$(terraform output -raw blob_account_name)" >> $GITHUB_ENV
         echo "cosmosdb_account_name=$(terraform output -raw cosmosdb_account_name)" >> $GITHUB_ENV
 
-    # 7️⃣ Debug Terraform Outputs
+    # 8️⃣ Debug Outputs
     - name: Debug Outputs
       run: |
         echo "Resource Group: ${{ env.resource_group_name }}"
@@ -56,11 +61,11 @@ jobs:
         echo "Blob Account: ${{ env.blob_account_name }}"
         echo "Cosmos DB: ${{ env.cosmosdb_account_name }}"
 
-    # 8️⃣ Package Function App
+    # 9️⃣ Package Function App
     - name: Package Function App
       run: zip -r functionapp.zip function_app/*
 
-    # 9️⃣ Deploy Function App
+    # 🔟 Deploy Function App
     - name: Deploy Function App
       run: |
         if [ -z "${{ env.resource_group_name }}" ] || [ -z "${{ env.function_app_name }}" ]; then
@@ -73,11 +78,11 @@ jobs:
           --name ${{ env.function_app_name }} \
           --src functionapp.zip
 
-    # 🔟 Upload Static Files to Blob Storage
+    # 1️⃣1️⃣ Upload Static Files to Blob Storage
     - name: Upload Static Files
       run: |
         if [ -z "${{ env.blob_account_name }}" ]; then
-          echo "Blob account name missing. Skipping static files upload."
+          echo "Blob account name missing. Skipping upload."
         else
           az storage blob upload-batch \
             --account-name ${{ env.blob_account_name }} \

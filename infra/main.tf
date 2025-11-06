@@ -15,17 +15,7 @@ provider "azurerm" {
   features {}
 }
 
-# Remote backend (optional but recommended)
-# terraform {
-#   backend "azurerm" {
-#     resource_group_name  = "terraform-backend-rg"
-#     storage_account_name = "terraformbackendstorage"
-#     container_name       = "tfstate"
-#     key                  = "cloud-resume.tfstate"
-#   }
-# }
-
-# Random ID for globally unique names
+# Random ID for unique names
 resource "random_id" "rand" {
   byte_length = 4
 }
