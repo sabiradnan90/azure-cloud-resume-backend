@@ -8,14 +8,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      RANDOM_ID: c10c3c55 # Fixed random ID for predictable names
+      # Fixed random ID for predictable names
+      RANDOM_ID: c10c3c55
       RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
       FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
       BLOB_ACCOUNT_NAME: crcstoragec10c3c55
       COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
 
     steps:
-      # 1️⃣ Checkout repository
+      # 1️⃣ Checkout repo
       - name: Checkout Repo
         uses: actions/checkout@v4
 
@@ -44,19 +45,18 @@ jobs:
         working-directory: infra
         run: |
           set -euo pipefail
-          terraform plan -out=tfplan.out
-          terraform show -json tfplan.out > tfplan.json
-          changes=$(jq '.resource_changes | length' tfplan.json)
-          echo "resource_changes=$changes" >> $GITHUB_ENV
+          terraform plan -detailed-exitcode -out=tfplan.out || exit_code=$?
+          # exit_code: 0 = no changes, 2 = changes, 1 = error
+          echo "plan_exit_code=${exit_code:-0}" >> $GITHUB_ENV
 
       # 6️⃣ Terraform Apply (only if changes)
       - name: Terraform Apply
-        if: env.resource_changes != '0'
+        if: env.plan_exit_code == '2'
         working-directory: infra
         run: terraform apply -auto-approve tfplan.out
 
       - name: Terraform Apply Skipped
-        if: env.resource_changes == '0'
+        if: env.plan_exit_code != '2'
         run: echo "No infrastructure changes detected. Skipping Terraform apply."
 
       # 7️⃣ Verify resource names
@@ -79,7 +79,7 @@ jobs:
             --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      # 🔟 Upload Static Files to Storage Account
+      # 🔟 Upload Static Files
       - name: Upload Static Files
         run: |
           az storage blob upload-batch \
