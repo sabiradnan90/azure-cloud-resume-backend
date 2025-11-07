@@ -1,4 +1,4 @@
-name: Deploy Azure Cloud Resume Backend
+name: Deploy Azure Cloud Resume Backend (No Terraform)
 
 on:
   push:
@@ -7,89 +7,99 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      # 🔐 Azure Authentication (from GitHub Secrets)
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      # 🌐 Predefined resource names
+    env:
+      LOCATION: eastus
       RANDOM_ID: c10c3c55
       RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+      STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
       FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-      BLOB_ACCOUNT_NAME: crcstoragec10c3c55
-      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+      COSMOS_ACCOUNT_NAME: crccosmosc10c3c55
 
     steps:
-      # 1️⃣ Checkout Repo
-      - name: Checkout Repo
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+      # 2️⃣ Azure Login using GitHub Secret
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          terraform_version: 1.5.0
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 3️⃣ Terraform Init
-      - name: Terraform Init
-        working-directory: infra
-        run: terraform init -input=false
-
-      # 4️⃣ Terraform Plan
-      - name: Terraform Plan
-        id: plan
-        working-directory: infra
+      # 3️⃣ Create Resource Group (if not exists)
+      - name: Create Resource Group
         run: |
-          set -euo pipefail
-          terraform plan -detailed-exitcode -out=tfplan.out || exit_code=$?
-          echo "plan_exit_code=${exit_code:-0}" >> $GITHUB_ENV
+          echo "Creating resource group if not exists..."
+          az group create \
+            --name $RESOURCE_GROUP_NAME \
+            --location $LOCATION
 
-      # 5️⃣ Terraform Apply (only if changes)
-      - name: Terraform Apply
-        if: env.plan_exit_code == '2'
-        working-directory: infra
-        run: terraform apply -auto-approve tfplan.out
-
-      - name: Terraform Apply Skipped
-        if: env.plan_exit_code != '2'
-        run: echo "No infrastructure changes detected. Skipping Terraform apply."
-
-      # 6️⃣ Azure CLI Authentication (using same SP credentials)
-      - name: Azure CLI Authentication
+      # 4️⃣ Create Storage Account (if not exists)
+      - name: Create Storage Account
         run: |
-          az login --service-principal \
-            --username $ARM_CLIENT_ID \
-            --password $ARM_CLIENT_SECRET \
-            --tenant $ARM_TENANT_ID
-          az account set --subscription $ARM_SUBSCRIPTION_ID
+          echo "Ensuring storage account exists..."
+          az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME || \
+          az storage account create \
+            --name $STORAGE_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --location $LOCATION \
+            --sku Standard_LRS
 
-      # 7️⃣ Package Function App
+      # 5️⃣ Create Function App (if not exists)
+      - name: Create Function App
+        run: |
+          echo "Ensuring Function App exists..."
+          az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME || \
+          az functionapp create \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --consumption-plan-location $LOCATION \
+            --runtime node \
+            --runtime-version 18 \
+            --functions-version 4 \
+            --name $FUNCTION_APP_NAME \
+            --storage-account $STORAGE_ACCOUNT_NAME
+
+      # 6️⃣ Create Cosmos DB Account (if not exists)
+      - name: Create Cosmos DB Account
+        run: |
+          echo "Ensuring Cosmos DB exists..."
+          az cosmosdb show --name $COSMOS_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME || \
+          az cosmosdb create \
+            --name $COSMOS_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --kind GlobalDocumentDB
+
+      # 7️⃣ Package Function App code
       - name: Package Function App
-        run: zip -r functionapp.zip function_app/*
+        run: |
+          echo "Packaging function app..."
+          zip -r functionapp.zip function_app/*
 
       # 8️⃣ Deploy Function App
       - name: Deploy Function App
         run: |
+          echo "Deploying function app..."
           az functionapp deployment source config-zip \
             --resource-group $RESOURCE_GROUP_NAME \
             --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      # 9️⃣ Upload Static Files
+      # 9️⃣ Upload Static Files to Blob Storage
       - name: Upload Static Files
         run: |
+          echo "Uploading static files to storage..."
           az storage blob upload-batch \
-            --account-name $BLOB_ACCOUNT_NAME \
+            --account-name $STORAGE_ACCOUNT_NAME \
             --destination static \
             --source static \
             --overwrite
 
-      # 🔟 Verify Resources
+      # 🔟 Verify Deployment
       - name: Verify Resources
         run: |
+          echo "✅ Deployed Resources:"
           echo "Resource Group: $RESOURCE_GROUP_NAME"
+          echo "Storage Account: $STORAGE_ACCOUNT_NAME"
           echo "Function App: $FUNCTION_APP_NAME"
-          echo "Blob Account: $BLOB_ACCOUNT_NAME"
-          echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
+          echo "Cosmos DB: $COSMOS_ACCOUNT_NAME"
