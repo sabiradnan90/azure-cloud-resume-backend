@@ -8,7 +8,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # Predefined resource names (replace RANDOM_ID if you want dynamic)
+      # 🔐 Azure Authentication (from GitHub Secrets)
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      # 🌐 Predefined resource names
       RANDOM_ID: c10c3c55
       RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
       FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
@@ -31,14 +37,13 @@ jobs:
         working-directory: infra
         run: terraform init -input=false
 
-      # 4️⃣ Terraform Plan (detect changes)
+      # 4️⃣ Terraform Plan
       - name: Terraform Plan
         id: plan
         working-directory: infra
         run: |
           set -euo pipefail
           terraform plan -detailed-exitcode -out=tfplan.out || exit_code=$?
-          # exit_code: 0 = no changes, 2 = changes, 1 = error
           echo "plan_exit_code=${exit_code:-0}" >> $GITHUB_ENV
 
       # 5️⃣ Terraform Apply (only if changes)
@@ -51,11 +56,14 @@ jobs:
         if: env.plan_exit_code != '2'
         run: echo "No infrastructure changes detected. Skipping Terraform apply."
 
-      # 6️⃣ Azure Login
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # 6️⃣ Azure CLI Authentication (using same SP credentials)
+      - name: Azure CLI Authentication
+        run: |
+          az login --service-principal \
+            --username $ARM_CLIENT_ID \
+            --password $ARM_CLIENT_SECRET \
+            --tenant $ARM_TENANT_ID
+          az account set --subscription $ARM_SUBSCRIPTION_ID
 
       # 7️⃣ Package Function App
       - name: Package Function App
