@@ -1,4 +1,4 @@
-name: Deploy CRC Backend (Visitor Counter Function with Cosmos DB)
+name: Deploy CRC Visitor Counter Function
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
               --kind StorageV2
           fi
 
-      # ✅ Create Cosmos DB for Table API if missing
+      # ✅ Create Cosmos DB Table API if missing
       - name: Create Cosmos DB Table API if missing
         run: |
           if ! az cosmosdb show --name $COSMOS_ACCOUNT --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
@@ -91,8 +91,9 @@ jobs:
               --os-type Linux \
               --name $FUNCTIONAPP_NAME \
               --storage-account $STORAGE_ACCOUNT
+          fi
 
-      # ✅ Configure App Settings
+      # ✅ Configure Function App settings
       - name: Configure Function App settings
         run: |
           az functionapp config appsettings set \
@@ -107,7 +108,7 @@ jobs:
           sleep 30
           az functionapp show -g $RESOURCE_GROUP -n $FUNCTIONAPP_NAME --query state
 
-      # ✅ Prepare correct deployment package
+      # ✅ Prepare clean deployment package
       - name: Prepare deployment package
         run: |
           cd function_app
@@ -132,7 +133,7 @@ jobs:
             -g $RESOURCE_GROUP \
             -n $FUNCTIONAPP_NAME
 
-      # ✅ Show URL
+      # ✅ Show Function App URL
       - name: Show Function App URL
         run: |
           echo "✅ Function deployed!"
