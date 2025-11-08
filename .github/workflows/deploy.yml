@@ -54,6 +54,18 @@ jobs:
             --os-type Linux
         fi
 
+    - name: Setup Python and Install Dependencies
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        cd function_app
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt --target .
+        fi
+
     - name: Zip Function App
       run: |
         cd function_app
