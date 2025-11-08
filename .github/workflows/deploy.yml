@@ -83,7 +83,8 @@ jobs:
         az webapp log config \
           --name $FUNCTION_APP \
           --resource-group $RESOURCE_GROUP \
-          --application-logging true
+          --application-logging filesystem \
+          --level information
 
     - name: Tail Function App Logs
       run: |
