@@ -1,33 +1,31 @@
-name: Deploy Azure Cloud Resume Backend
+name: Azure Deployment
 
 on:
   push:
     branches:
       - main
 
-env:
-  RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-  LOCATION: canadacentral
-  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-  DATABASE_NAME: VisitorDB
-  CONTAINER_NAME: Counter
-  BLOB_ACCOUNT_NAME: crcstoragec10c3c55
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+      LOCATION: canadacentral
+      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+      BLOB_ACCOUNT_NAME: crcstoragec10c3c55
+      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+
     steps:
-      - name: Checkout Repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Resource Group exists
+      - name: Check Resource Group
         run: |
           if az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
             echo "Resource Group exists ✅"
@@ -36,43 +34,27 @@ jobs:
             echo "Resource Group created ✅"
           fi
 
-      - name: Ensure Cosmos DB Account exists
+      - name: Check Cosmos DB
         run: |
           if az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             echo "Cosmos DB account already exists ✅"
           else
-            az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName=$LOCATION failoverPriority=0 isZoneRedundant=False
+            az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName=$LOCATION
             echo "Cosmos DB account created ✅"
           fi
 
-          # Ensure Database exists
-          if az cosmosdb sql database show --account-name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --name $DATABASE_NAME &> /dev/null; then
-            echo "Database already exists ✅"
-          else
-            az cosmosdb sql database create --account-name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --name $DATABASE_NAME
-            echo "Database created ✅"
-          fi
-
-          # Ensure Container exists
-          if az cosmosdb sql container show --account-name $COSMOSDB_ACCOUNT_NAME --database-name $DATABASE_NAME --resource-group $RESOURCE_GROUP_NAME --name $CONTAINER_NAME &> /dev/null; then
-            echo "Container already exists ✅"
-          else
-            az cosmosdb sql container create --account-name $COSMOSDB_ACCOUNT_NAME --database-name $DATABASE_NAME --name $CONTAINER_NAME --partition-key-path /id --resource-group $RESOURCE_GROUP_NAME
-            echo "Container created ✅"
-          fi
-
-      - name: Get Cosmos DB Connection String
-        id: cosmos
+      - name: Set Cosmos DB connection string
         run: |
           CONNECTION_STRING=$(az cosmosdb keys list \
             --name $COSMOSDB_ACCOUNT_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
-            --type connection-strings \
-            --query "connectionStrings[0].connectionString" -o tsv)
+            --type keys \
+            --query "primaryMasterKey" -o tsv)
           echo "COSMOS_CONNECTION_STRING=$CONNECTION_STRING" >> $GITHUB_ENV
 
-      - name: Ensure Function App exists
+      - name: Deploy Function App
         run: |
+          # Check if Function App exists
           if az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             echo "Function App already exists ✅"
           else
@@ -86,48 +68,48 @@ jobs:
             echo "Function App created ✅"
           fi
 
-      - name: Set Function App Settings
-        run: |
+          # Set app settings
           az functionapp config appsettings set \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
             --settings \
-              COSMOS_CONNECTION_STRING=${{ env.COSMOS_CONNECTION_STRING }} \
               COSMOS_DB_ACCOUNT=$COSMOSDB_ACCOUNT_NAME \
-              COSMOS_DB_DATABASE=$DATABASE_NAME \
-              COSMOS_DB_CONTAINER=$CONTAINER_NAME
+              COSMOS_DB_DATABASE=VisitorDB \
+              COSMOS_DB_CONTAINER=VisitorContainer
 
-      - name: Deploy Function App
+      - name: Deploy Function App code
         run: |
           cd function_app
           zip -r functionapp.zip *
           az functionapp deployment source config-zip \
-            --src functionapp.zip \
             --name $FUNCTION_APP_NAME \
-            --resource-group $RESOURCE_GROUP_NAME
+            --resource-group $RESOURCE_GROUP_NAME \
+            --src functionapp.zip
 
-      - name: Deploy Static Website
+      - name: Upload static website
         run: |
           az storage blob upload-batch \
             --account-name $BLOB_ACCOUNT_NAME \
-            --source static/ \
             --destination '$web' \
-            --auth-mode login
+            --source ./static \
+            --overwrite
 
-      - name: Fetch Function App URL
+      - name: Fetch Visitor Counter URL
+        id: visitor
         run: |
-          FUNC_URL=$(az functionapp show \
+          FUNC_URL=$(az functionapp function show \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
-            --query "defaultHostName" -o tsv)
-          echo "Function App URL: https://$FUNC_URL"
-          echo "FUNCTION_APP_URL=https://$FUNC_URL" >> $GITHUB_ENV
+            --function-name VisitorCounter \
+            --query "invokeUrlTemplate" -o tsv)
+          echo "Visitor Counter URL: $FUNC_URL"
+          echo "VISITOR_COUNTER_URL=$FUNC_URL" >> $GITHUB_ENV
 
-      - name: Deployment Summary
+      - name: Deployment summary
         run: |
           echo "✅ Deployment Summary"
           echo "Resource Group: $RESOURCE_GROUP_NAME"
           echo "Function App: $FUNCTION_APP_NAME"
-          echo "Function App URL: ${{ env.FUNCTION_APP_URL }}"
+          echo "Visitor Counter URL: $VISITOR_COUNTER_URL"
           echo "Blob Account: $BLOB_ACCOUNT_NAME"
           echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
