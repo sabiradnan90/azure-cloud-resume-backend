@@ -1,2 +1,8 @@
-azure-functions
-azure-cosmosdb-table
+# Azure Functions core library
+azure-functions==1.13.0
+
+# Cosmos DB SDK for Python
+azure-cosmos==4.3.0
+
+# Optional: HTTP requests if your function makes any API calls
+requests==2.31.0
