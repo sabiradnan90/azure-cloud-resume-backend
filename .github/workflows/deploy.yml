@@ -18,7 +18,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       # Checkout repo
       - name: Checkout repository
@@ -30,34 +29,34 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Ensure Resource Group exists
+      # Ensure Resource Group
       - name: Ensure Resource Group
         run: |
           if ! az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
             az group create --name $RESOURCE_GROUP_NAME --location "$LOCATION"
           fi
 
-      # Ensure Storage Account exists
+      # Ensure Storage Account
       - name: Ensure Storage Account
         run: |
           if ! az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             az storage account create --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --sku Standard_LRS --location "$LOCATION"
           fi
 
-      # Ensure Cosmos DB exists
+      # Ensure Cosmos DB
       - name: Ensure Cosmos DB Account
         run: |
           if ! az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName="$LOCATION" --default-consistency-level "Session" --kind "MongoDB"
           fi
 
-      # Get Cosmos DB connection string
+      # Get Cosmos DB Connection String
       - name: Get Cosmos DB Connection String
         id: cosmos
         run: |
           echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
 
-      # Create Cosmos DB database & container
+      # Create Cosmos DB Database & Container
       - name: Create Cosmos DB Database & Container
         run: |
           az cosmosdb sql database create \
@@ -71,14 +70,14 @@ jobs:
             --name $COSMOS_CONTAINER_NAME \
             --partition-key-path "/id"
 
-      # Ensure Function App Plan exists
+      # Ensure Function App Plan
       - name: Ensure Function App Plan
         run: |
           if ! az functionapp plan show --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             az functionapp plan create --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME --location "$LOCATION" --sku Y1 --is-linux
           fi
 
-      # Ensure Function App exists with Python 3.11
+      # Ensure Function App
       - name: Ensure Function App
         run: |
           if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
@@ -91,6 +90,7 @@ jobs:
               --runtime-version 3.11 \
               --functions-version 4 \
               --os-type Linux
+          fi
 
       # Configure Function App settings
       - name: Configure Function App Settings
