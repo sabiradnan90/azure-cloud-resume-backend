@@ -1,73 +1,55 @@
-name: Azure Function Deploy
+name: Deploy Python Azure Function
 
 on:
   push:
     branches:
       - main
 
-env:
-  RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-  PLAN_NAME: crc-func-plan-c10c3c55
-  STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
-  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-  COSMOS_DB_NAME: cloudresume
-  COSMOS_CONTAINER_NAME: visitorcounter
-
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+      FUNCTION_APP_PLAN: crc-func-plan-c10c3c55
+      STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
+      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+      COSMOS_DB_NAME: cloudresume
+      COSMOS_CONTAINER_NAME: visitorcounter
+
     steps:
-    - name: Checkout code
+    - name: Checkout repo
       uses: actions/checkout@v4
 
-    - name: Azure Login
+    - name: Login to Azure
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Ensure Cosmos DB container exists
-      run: |
-        echo "✅ Creating Cosmos DB container if it doesn't exist..."
-        az cosmosdb sql container create \
-          --resource-group $RESOURCE_GROUP_NAME \
-          --account-name $COSMOSDB_ACCOUNT_NAME \
-          --database-name $COSMOS_DB_NAME \
-          --name $COSMOS_CONTAINER_NAME \
-          --partition-key-path "/id" \
-          --throughput 400 \
-          --output none || echo "Container already exists"
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-    - name: Get Cosmos DB connection string
+    - name: Install dependencies
       run: |
-        echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
+        python -m pip install --upgrade pip
+        pip install -r function_app/requirements.txt
 
-    - name: Set Function App settings
-      run: |
-        az functionapp config appsettings set \
-          --name $FUNCTION_APP_NAME \
-          --resource-group $RESOURCE_GROUP_NAME \
-          --settings \
-            FUNCTIONS_WORKER_RUNTIME=python \
-            COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
-            COSMOS_DB_NAME=$COSMOS_DB_NAME \
-            COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
-
-    - name: Prepare zip package
+    - name: Zip function app
       run: |
         cd function_app
-        zip -r ../function.zip *
-        cd ..
+        zip -r ../function_app.zip .
 
-    - name: Deploy Function App
+    - name: Deploy Function App (with timeout)
       run: |
         az functionapp deployment source config-zip \
           --resource-group $RESOURCE_GROUP_NAME \
           --name $FUNCTION_APP_NAME \
-          --src function.zip \
+          --src function_app.zip \
           --timeout 300
 
-    - name: Show Function App URL
+    - name: Show deployed Function URL
       run: |
-            echo "✅ Function deployed: https://${{ env.FUNCTION_APP_NAME }}.azurewebsites.net/api/visitorcounter"
+        echo "✅ Visitor Counter URL: https://${FUNCTION_APP_NAME}.azurewebsites.net/api/visitorcounter"
