@@ -1,116 +1,112 @@
-name: Deploy Azure Function (Python 3.11)
+name: Deploy Azure Function App
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+  STORAGE_ACCOUNT_NAME: crctoragec10c3c55
+  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+  COSMOS_DB_NAME: cloudresume
+  COSMOS_CONTAINER_NAME: visitorcounter
+  PLAN_NAME: crc-func-plan-c10c3c55
+  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+  LOCATION: "Canada Central"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-      PLAN_NAME: crc-func-plan-c10c3c55
-      STORAGE_ACCOUNT_NAME: crcfunctoragec10c3c55
-      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-      COSMOS_DB_NAME: cloudresume
-      COSMOS_CONTAINER_NAME: visitorcounter
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Resource Group exists
-        run: |
-          if ! az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
-            az group create --name $RESOURCE_GROUP_NAME --location "Canada Central"
-          else
-            echo "Resource Group exists ✅"
-          fi
+    - name: Ensure Resource Group
+      run: |
+        if ! az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
+          az group create --name $RESOURCE_GROUP_NAME --location "$LOCATION"
+        fi
 
-      - name: Ensure Storage Account exists
-        run: |
-          if ! az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az storage account create \
-              --name $STORAGE_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --location "Canada Central" \
-              --sku Standard_LRS
-          else
-            echo "Storage Account exists ✅"
-          fi
+    - name: Ensure Storage Account
+      run: |
+        if ! az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az storage account create --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --sku Standard_LRS --location "$LOCATION"
+        fi
 
-      - name: Ensure Cosmos DB exists
-        run: |
-          if ! az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --locations regionName="Canada Central" failoverPriority=0 \
-              --default-consistency-level "Session" \
-              --kind GlobalDocumentDB
-          else
-            echo "Cosmos DB exists ✅"
-          fi
+    - name: Ensure Cosmos DB Account
+      run: |
+        if ! az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName="$LOCATION" --default-consistency-level "Session" --kind "MongoDB"
+        fi
 
-      - name: Get Cosmos DB connection string
-        id: cosmos
-        run: |
-          echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list \
-            --name $COSMOSDB_ACCOUNT_NAME \
+    - name: Get Cosmos DB Connection String
+      id: cosmos
+      run: |
+        echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
+
+    - name: Create Cosmos DB Database & Container
+      run: |
+        if ! az cosmosdb sql database show --name $COSMOS_DB_NAME --account-name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az cosmosdb sql database create \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
-            --type connection-strings \
-            --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
+            --name $COSMOS_DB_NAME
+        fi
 
-      - name: Ensure Function App Plan exists
-        run: |
-          if ! az functionapp plan show --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az functionapp plan create \
-              --name $PLAN_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --location "Canada Central" \
-              --sku Y1 \
-              --is-linux
-          else
-            echo "Function App Plan exists ✅"
-          fi
+        if ! az cosmosdb sql container show --name $COSMOS_CONTAINER_NAME --database-name $COSMOS_DB_NAME --account-name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az cosmosdb sql container create \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --database-name $COSMOS_DB_NAME \
+            --name $COSMOS_CONTAINER_NAME \
+            --partition-key-path "/id"
+        fi
 
-      - name: Ensure Function App exists
-        run: |
-          if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az functionapp create \
-              --name $FUNCTION_APP_NAME \
-              --storage-account $STORAGE_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --plan $PLAN_NAME \
-              --runtime python \
-              --runtime-version 3.11 \
-              --functions-version 4 \
-              --os-type Linux
-          else
-            echo "Function App exists ✅"
-          fi
+    - name: Ensure Function App Plan
+      run: |
+        if ! az functionapp plan show --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az functionapp plan create --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME --location "$LOCATION" --sku Y1 --is-linux
+        fi
 
-      - name: Configure App Settings
-        run: |
-          az functionapp config appsettings set \
+    - name: Ensure Function App
+      run: |
+        if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+          az functionapp create \
             --name $FUNCTION_APP_NAME \
+            --storage-account $STORAGE_ACCOUNT_NAME \
+            --plan $PLAN_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
-            --settings FUNCTIONS_WORKER_RUNTIME=python \
-                      COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
-                      COSMOS_DB_NAME=$COSMOS_DB_NAME \
-                      COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
+            --runtime python \
+            --runtime-version 3.11 \
+            --functions-version 4 \
+            --os-type Linux
+        fi
 
-      - name: Deploy Function App
-        run: |
-          cd function_app
-          func azure functionapp publish $FUNCTION_APP_NAME --python
+    - name: Configure Function App Settings
+      run: |
+        az functionapp config appsettings set \
+          --name $FUNCTION_APP_NAME \
+          --resource-group $RESOURCE_GROUP_NAME \
+          --settings \
+            FUNCTIONS_WORKER_RUNTIME=python \
+            COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
+            COSMOS_DB_NAME=$COSMOS_DB_NAME \
+            COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
 
-      - name: Output Visitor Counter URL
-        run: echo "✅ Visitor Counter URL: https://$FUNCTION_APP_NAME.azurewebsites.net/api/visitorcounter"
+    - name: Deploy Function App
+      run: |
+        cd function_app
+        zip -r ../function_app.zip .
+        az functionapp deployment source config-zip \
+          --name $FUNCTION_APP_NAME \
+          --resource-group $RESOURCE_GROUP_NAME \
+          --src ../function_app.zip
+
+    - name: Show Visitor Counter URL
+      run: echo "✅ Visitor Counter URL: https://$FUNCTION_APP_NAME.azurewebsites.net/api/visitorcounter"
