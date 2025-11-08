@@ -6,50 +6,84 @@ on:
       - main
 
 env:
-  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-  PLAN_NAME: crc-func-plan-c10c3c55
   RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-  LOCATION: "Canada Central"
-  COSMOS_CONNECTION_STRING: "<your-cosmos-connection-string>"
+  STORAGE_ACCOUNT_NAME: crctoragec10c3c55
+  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
   COSMOS_DB_NAME: cloudresume
   COSMOS_CONTAINER_NAME: visitorcounter
+  PLAN_NAME: crc-func-plan-c10c3c55
+  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+  LOCATION: "Canada Central"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # 1. Checkout repo
+      - uses: actions/checkout@v4
 
-      - name: Login to Azure
-        uses: azure/login@v1
+      # 2. Login to Azure
+      - uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Function App Plan
-        run: |
+      # 3. Ensure Resource Group
+      - run: |
+          if ! az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
+            az group create --name $RESOURCE_GROUP_NAME --location "$LOCATION"
+          fi
+
+      # 4. Ensure Storage Account
+      - run: |
+          if ! az storage account show --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+            az storage account create --name $STORAGE_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --sku Standard_LRS --location "$LOCATION"
+          fi
+
+      # 5. Ensure Cosmos DB Account
+      - run: |
+          if ! az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+            az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName="$LOCATION" --default-consistency-level "Session" --kind "MongoDB"
+          fi
+
+      # 6. Get Cosmos DB connection string
+      - run: |
+          echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
+
+      # 7. Create Cosmos DB database & container
+      - run: |
+          az cosmosdb sql database create \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --name $COSMOS_DB_NAME
+          az cosmosdb sql container create \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --database-name $COSMOS_DB_NAME \
+            --name $COSMOS_CONTAINER_NAME \
+            --partition-key-path "/id"
+
+      # 8. Ensure Function App Plan
+      - run: |
           if ! az functionapp plan show --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             az functionapp plan create --name $PLAN_NAME --resource-group $RESOURCE_GROUP_NAME --location "$LOCATION" --sku Y1 --is-linux
           fi
 
-      - name: Ensure Function App
-        run: |
-          if az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az functionapp delete --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME
+      # 9. Ensure Function App
+      - run: |
+          if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+            az functionapp create \
+              --name $FUNCTION_APP_NAME \
+              --storage-account $STORAGE_ACCOUNT_NAME \
+              --plan $PLAN_NAME \
+              --resource-group $RESOURCE_GROUP_NAME \
+              --runtime python \
+              --runtime-version 3.11 \
+              --functions-version 4 \
+              --os-type Linux
           fi
-          az functionapp create \
-            --name $FUNCTION_APP_NAME \
-            --storage-account "<your-storage-account>" \
-            --plan $PLAN_NAME \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --runtime python \
-            --runtime-version 3.11 \
-            --functions-version 4 \
-            --os-type Linux
 
-      - name: Configure Function App Settings
-        run: |
+      # 10. Configure Function App Settings
+      - run: |
           az functionapp config appsettings set \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
@@ -59,8 +93,8 @@ jobs:
             COSMOS_DB_NAME=$COSMOS_DB_NAME \
             COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
 
-      - name: Deploy Function App
-        run: |
+      # 11. Deploy Function App
+      - run: |
           cd function_app
           zip -r ../function_app.zip .
           az functionapp deployment source config-zip \
@@ -68,6 +102,6 @@ jobs:
             --resource-group $RESOURCE_GROUP_NAME \
             --src ../function_app.zip
 
-      - name: Show Visitor Counter URL
-        run: |
+      # 12. Show Visitor Counter URL
+      - run: |
           echo "✅ Visitor Counter URL: https://${FUNCTION_APP_NAME}.azurewebsites.net/api/visitorcounter"
