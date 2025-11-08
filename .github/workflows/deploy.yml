@@ -1,22 +1,22 @@
-name: Deploy Azure Function App
+name: Azure Function CI/CD
 
 on:
   push:
     branches:
       - main
 
+env:
+  RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+  STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
+  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+  COSMOS_DB_NAME: cloudresume
+  COSMOS_CONTAINER_NAME: visitorcounter
+  PLAN_NAME: crc-func-plan-c10c3c55
+  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
-    env:
-      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-      STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
-      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-      COSMOS_DB_NAME: cloudresume
-      COSMOS_CONTAINER_NAME: visitorcounter
-      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-      PLAN_NAME: crc-func-plan-c10c3c55
 
     steps:
       - name: Checkout repository
@@ -27,17 +27,22 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Cosmos DB container exists
+      - name: Ensure Cosmos DB SQL Database exists
         run: |
-          echo "✅ Creating Cosmos DB container if it doesn't exist..."
-          az cosmosdb sql container create \
-            --resource-group $RESOURCE_GROUP_NAME \
+          az cosmosdb sql database create \
             --account-name $COSMOSDB_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --name $COSMOS_DB_NAME
+
+      - name: Ensure Cosmos DB SQL Container exists
+        run: |
+          az cosmosdb sql container create \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
             --database-name $COSMOS_DB_NAME \
             --name $COSMOS_CONTAINER_NAME \
             --partition-key-path "/id" \
-            --throughput 400 \
-            || echo "Container already exists."
+            --throughput 400
 
       - name: Get Cosmos DB connection string
         run: |
@@ -45,23 +50,22 @@ jobs:
             --name $COSMOSDB_ACCOUNT_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
             --type connection-strings \
-            --query 'connectionStrings[0].connectionString' \
-            -o tsv)" >> $GITHUB_ENV
+            --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
 
-      - name: Create Function App if not exists
+      - name: Ensure Function App exists
         run: |
           if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             az functionapp create \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --plan $PLAN_NAME \
               --name $FUNCTION_APP_NAME \
               --storage-account $STORAGE_ACCOUNT_NAME \
+              --resource-group $RESOURCE_GROUP_NAME \
+              --plan $PLAN_NAME \
               --runtime python \
               --functions-version 4 \
               --os-type Linux
           fi
 
-      - name: Configure Function App settings
+      - name: Set Function App settings
         run: |
           az functionapp config appsettings set \
             --name $FUNCTION_APP_NAME \
@@ -71,15 +75,16 @@ jobs:
                        COSMOS_DB_NAME=$COSMOS_DB_NAME \
                        COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
 
-      - name: Deploy Function App code
+      - name: Deploy Function App
         run: |
           cd function_app
-          zip -r functionapp.zip *
+          zip -r ../functionapp.zip .
+          cd ..
           az functionapp deployment source config-zip \
             --resource-group $RESOURCE_GROUP_NAME \
             --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      - name: Show Function URL
+      - name: Show Function App URL
         run: |
-          echo "✅ Visitor Counter URL: https://${FUNCTION_APP_NAME}.azurewebsites.net/api/visitorcounter"
+            echo "✅ Function URL: https://${{ env.FUNCTION_APP_NAME }}.azurewebsites.net/api/visitorcounter"
