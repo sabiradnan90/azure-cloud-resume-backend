@@ -1,25 +1,25 @@
-name: Azure Function CI/CD
+name: Azure Function App CI/CD
 
 on:
   push:
     branches:
       - main
 
-env:
-  RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
-  STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
-  COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-  COSMOS_DB_NAME: cloudresume
-  COSMOS_CONTAINER_NAME: visitorcounter
-  PLAN_NAME: crc-func-plan-c10c3c55
-  FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
-
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
+      FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+      PLAN_NAME: crc-func-plan-c10c3c55
+      STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
+      COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
+      COSMOS_DB_NAME: cloudresume
+      COSMOS_CONTAINER_NAME: visitorcounter
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Login to Azure
@@ -27,64 +27,39 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Cosmos DB SQL Database exists
-        run: |
-          az cosmosdb sql database create \
-            --account-name $COSMOSDB_ACCOUNT_NAME \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --name $COSMOS_DB_NAME
-
-      - name: Ensure Cosmos DB SQL Container exists
+      - name: Set up Cosmos DB container if it doesn't exist
         run: |
           az cosmosdb sql container create \
-            --account-name $COSMOSDB_ACCOUNT_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
+            --account-name $COSMOSDB_ACCOUNT_NAME \
             --database-name $COSMOS_DB_NAME \
             --name $COSMOS_CONTAINER_NAME \
             --partition-key-path "/id" \
-            --throughput 400
+            --throughput 400 || echo "Container may already exist"
 
-      - name: Get Cosmos DB connection string
-        run: |
-          echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list \
-            --name $COSMOSDB_ACCOUNT_NAME \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --type connection-strings \
-            --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
-
-      - name: Ensure Function App exists
-        run: |
-          if ! az functionapp show --name $FUNCTION_APP_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
-            az functionapp create \
-              --name $FUNCTION_APP_NAME \
-              --storage-account $STORAGE_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --plan $PLAN_NAME \
-              --runtime python \
-              --functions-version 4 \
-              --os-type Linux
-          fi
-
-      - name: Set Function App settings
+      - name: Ensure Function App settings
         run: |
           az functionapp config appsettings set \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
             --settings FUNCTIONS_WORKER_RUNTIME=python \
-                       COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
+                       COSMOS_CONNECTION_STRING=$(az cosmosdb keys list \
+                          --name $COSMOSDB_ACCOUNT_NAME \
+                          --resource-group $RESOURCE_GROUP_NAME \
+                          --type connection-strings \
+                          --query 'connectionStrings[0].connectionString' -o tsv) \
                        COSMOS_DB_NAME=$COSMOS_DB_NAME \
                        COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
 
-      - name: Deploy Function App
+      - name: Zip function app
         run: |
           cd function_app
-          zip -r ../functionapp.zip .
+          zip -r ../function.zip .
           cd ..
+
+      - name: Deploy function app
+        run: |
           az functionapp deployment source config-zip \
             --resource-group $RESOURCE_GROUP_NAME \
             --name $FUNCTION_APP_NAME \
-            --src functionapp.zip
-
-      - name: Show Function App URL
-        run: |
-            echo "✅ Function URL: https://${{ env.FUNCTION_APP_NAME }}.azurewebsites.net/api/visitorcounter"
+            --src function.zip
