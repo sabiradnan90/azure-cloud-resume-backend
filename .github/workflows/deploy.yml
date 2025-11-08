@@ -1,140 +1,65 @@
-name: Deploy CRC Visitor Counter Function
+name: Deploy CRC Visitor Function App
 
 on:
   push:
     branches: [ main ]
 
 env:
-  AZURE_LOCATION: "CanadaCentral"
   RESOURCE_GROUP: "azure-cloud-resume-rg-c10c3c55"
-  FUNCTIONAPP_NAME: "crc-visitor-func-c10c3c55"
-  STORAGE_ACCOUNT: "crcvisitorstc10c3c55"
-  COSMOS_ACCOUNT: "crc-visitor-cosmos-c10c3c55"
-  TABLE_NAME: "visitorcounter"
+  FUNCTION_APP: "crc-visitor-func-c10c3c55"
 
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # 4️⃣ Azure login
       - name: Azure login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # ✅ Create Storage Account if missing
-      - name: Create Storage Account if missing
+      # 5️⃣ Create deployment zip using Python (cross-platform)
+      - name: Create deployment package
         run: |
-          if ! az storage account show --name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
-            az storage account create \
-              --name $STORAGE_ACCOUNT \
-              --resource-group $RESOURCE_GROUP \
-              --location $AZURE_LOCATION \
-              --sku Standard_LRS \
-              --kind StorageV2
-          fi
+          python -m zipfile -c functionapp.zip function_app/VisitorCounter
 
-      # ✅ Create Cosmos DB Table API if missing
-      - name: Create Cosmos DB Table API if missing
-        run: |
-          if ! az cosmosdb show --name $COSMOS_ACCOUNT --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
-            az cosmosdb create \
-              --name $COSMOS_ACCOUNT \
-              --resource-group $RESOURCE_GROUP \
-              --kind GlobalDocumentDB \
-              --capabilities EnableTable \
-              --locations regionName=$AZURE_LOCATION failoverPriority=0
-          fi
-
-          # Create Table if missing
-          if ! az cosmosdb table show --account-name $COSMOS_ACCOUNT --resource-group $RESOURCE_GROUP --name $TABLE_NAME >/dev/null 2>&1; then
-            az cosmosdb table create \
-              --account-name $COSMOS_ACCOUNT \
-              --resource-group $RESOURCE_GROUP \
-              --name $TABLE_NAME
-          fi
-
-      # ✅ Get Cosmos DB connection string
-      - name: Set Cosmos DB connection string
-        id: cosmos
-        run: |
-          CONN_STR=$(az cosmosdb keys list \
-            --type connection-strings \
-            --name $COSMOS_ACCOUNT \
-            --resource-group $RESOURCE_GROUP \
-            --query "connectionStrings[0].connectionString" -o tsv)
-          echo "COSMOS_CONN_STRING=$CONN_STR" >> $GITHUB_ENV
-
-      # ✅ Create Function App if missing
-      - name: Create Function App if missing
-        run: |
-          if ! az functionapp show --name $FUNCTIONAPP_NAME --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
-            az functionapp create \
-              --resource-group $RESOURCE_GROUP \
-              --consumption-plan-location $AZURE_LOCATION \
-              --runtime python \
-              --runtime-version 3.11 \
-              --functions-version 4 \
-              --os-type Linux \
-              --name $FUNCTIONAPP_NAME \
-              --storage-account $STORAGE_ACCOUNT
-          fi
-
-      # ✅ Configure Function App settings
-      - name: Configure Function App settings
-        run: |
-          az functionapp config appsettings set \
-            -g $RESOURCE_GROUP \
-            -n $FUNCTIONAPP_NAME \
-            --settings COSMOS_TABLE_NAME=$TABLE_NAME COSMOS_CONN_STRING=$COSMOS_CONN_STRING
-
-      # ✅ Wait for SCM site to be ready
-      - name: Wait for SCM site to be ready
-        run: |
-          echo "Waiting for Kudu site to be ready..."
-          sleep 30
-          az functionapp show -g $RESOURCE_GROUP -n $FUNCTIONAPP_NAME --query state
-
-      # ✅ Prepare clean deployment package
-      - name: Prepare deployment package
-        run: |
-          cd function_app
-          zip -r ../functionapp.zip VisitorCounter requirements.txt
-          cd ..
-
-      # ✅ Deploy using Azure CLI
-      - name: Deploy Function App code
+      # 6️⃣ Deploy to Azure Function App
+      - name: Deploy Function App
         run: |
           for i in {1..3}; do
             echo "Attempt $i to deploy function app..."
             az functionapp deployment source config-zip \
-              -g $RESOURCE_GROUP \
-              -n $FUNCTIONAPP_NAME \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name ${{ env.FUNCTION_APP }} \
               --src functionapp.zip && break || sleep 30
           done
 
-      # ✅ Restart Function App
+      # 7️⃣ Restart Function App to ensure code loads
       - name: Restart Function App
         run: |
           az functionapp restart \
-            -g $RESOURCE_GROUP \
-            -n $FUNCTIONAPP_NAME
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.FUNCTION_APP }}
 
-      # ✅ Show Function App URL
-      - name: Show Function App URL
+      # 8️⃣ Show deployed URL
+      - name: Show URL
         run: |
           echo "✅ Function deployed!"
-          echo "✅ URL: https://${FUNCTIONAPP_NAME}.azurewebsites.net/api/VisitorCounter"
+          echo "✅ URL: https://${{ env.FUNCTION_APP }}.azurewebsites.net/api/VisitorCounter"
