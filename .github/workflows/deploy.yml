@@ -1,4 +1,4 @@
-name: Deploy Azure Function
+name: Azure Function Deploy
 
 on:
   push:
@@ -8,51 +8,66 @@ on:
 env:
   RESOURCE_GROUP_NAME: azure-cloud-resume-rg-c10c3c55
   FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
+  PLAN_NAME: crc-func-plan-c10c3c55
+  STORAGE_ACCOUNT_NAME: crcstoragec10c3c55
   COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
   COSMOS_DB_NAME: cloudresume
   COSMOS_CONTAINER_NAME: visitorcounter
-  PLAN_NAME: crc-func-plan-c10c3c55
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Cosmos DB container exists
-        run: |
-          az cosmosdb sql container create \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --account-name $COSMOSDB_ACCOUNT_NAME \
-            --database-name $COSMOS_DB_NAME \
-            --name $COSMOS_CONTAINER_NAME \
-            --partition-key-path "/id" \
-            --throughput 400 || echo "Container may already exist"
+    - name: Ensure Cosmos DB container exists
+      run: |
+        echo "✅ Creating Cosmos DB container if it doesn't exist..."
+        az cosmosdb sql container create \
+          --resource-group $RESOURCE_GROUP_NAME \
+          --account-name $COSMOSDB_ACCOUNT_NAME \
+          --database-name $COSMOS_DB_NAME \
+          --name $COSMOS_CONTAINER_NAME \
+          --partition-key-path "/id" \
+          --throughput 400 \
+          --output none || echo "Container already exists"
 
-      - name: Get Cosmos DB connection string
-        run: echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
+    - name: Get Cosmos DB connection string
+      run: |
+        echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
 
-      - name: Set Function App settings
-        run: |
-          az functionapp config appsettings set \
-            --name $FUNCTION_APP_NAME \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --settings FUNCTIONS_WORKER_RUNTIME=python \
-                        COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
-                        COSMOS_DB_NAME=$COSMOS_DB_NAME \
-                        COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
+    - name: Set Function App settings
+      run: |
+        az functionapp config appsettings set \
+          --name $FUNCTION_APP_NAME \
+          --resource-group $RESOURCE_GROUP_NAME \
+          --settings \
+            FUNCTIONS_WORKER_RUNTIME=python \
+            COSMOS_CONNECTION_STRING=$COSMOS_CONNECTION_STRING \
+            COSMOS_DB_NAME=$COSMOS_DB_NAME \
+            COSMOS_CONTAINER_NAME=$COSMOS_CONTAINER_NAME
 
-      - name: Deploy Function App
-        run: |
-          cd function_app
-          zip -r ../function.zip .
-          cd ..
-          az functionapp deployment source config-zip \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --name $FUNCTION_APP_NAME \
-            --src function.zip
+    - name: Prepare zip package
+      run: |
+        cd function_app
+        zip -r ../function.zip *
+        cd ..
+
+    - name: Deploy Function App
+      run: |
+        az functionapp deployment source config-zip \
+          --resource-group $RESOURCE_GROUP_NAME \
+          --name $FUNCTION_APP_NAME \
+          --src function.zip \
+          --timeout 300
+
+    - name: Show Function App URL
+      run: |
+            echo "✅ Function deployed: https://${{ env.FUNCTION_APP_NAME }}.azurewebsites.net/api/visitorcounter"
