@@ -1,16 +1,15 @@
 import logging
 import azure.functions as func
 from azure.cosmos import CosmosClient
-from azure.identity import DefaultAzureCredential
 import os
 
 COSMOS_ACCOUNT = os.environ['COSMOS_DB_ACCOUNT']
 DATABASE_NAME = os.environ['COSMOS_DB_DATABASE']
 CONTAINER_NAME = os.environ['COSMOS_DB_CONTAINER']
 
-endpoint = f"https://{COSMOS_ACCOUNT}.documents.azure.com:443/"
-credential = DefaultAzureCredential()  # Uses system-assigned identity
-client = CosmosClient(endpoint, credential=credential)
+# Cosmos Client using connection string
+CONNECTION_STRING = os.environ['COSMOS_CONNECTION_STRING']
+client = CosmosClient.from_connection_string(CONNECTION_STRING)
 
 db = client.get_database_client(DATABASE_NAME)
 container = db.get_container_client(CONTAINER_NAME)

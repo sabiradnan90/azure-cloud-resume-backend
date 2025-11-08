@@ -1,13 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Adnan Sabir Resume</title>
+    <meta charset="UTF-8">
+    <title>Adnan Sabir - Cloud Resume</title>
 </head>
 <body>
-<h1>Welcome to Adnan Sabir's Cloud Resume</h1>
-<p>Click the button below to view or download the CV:</p>
-<a href="AdnanSabirCV.pdf" target="_blank">
-<button>View CV</button>
-</a>
+    <h1>Welcome to My Cloud Resume!</h1>
+    <p>Check out my <a href="AdnanSabirCV.pdf" target="_blank">CV</a>.</p>
+    <p>Visitor counter: <span id="visits">Loading...</span></p>
+
+    <script>
+        fetch('https://crc-visitor-func-c10c3c55.azurewebsites.net/api/VisitorCounter')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('visits').textContent = data.visits;
+            })
+            .catch(err => console.error(err));
+    </script>
 </body>
 </html>
