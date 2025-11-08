@@ -91,7 +91,6 @@ jobs:
               --runtime-version 3.11 \
               --functions-version 4 \
               --os-type Linux
-          fi
 
       # Configure Function App settings
       - name: Configure Function App Settings
@@ -117,4 +116,7 @@ jobs:
 
       # Show Visitor Counter URL
       - name: Show Visitor Counter URL
-        run: echo "✅ Visitor Counter URL: https://$FUNCTION_APP_NAME.azurewebsites.net/api/visitorcounter"
+        env:
+          FUNCTION_APP_NAME: ${{ env.FUNCTION_APP_NAME }}
+        run: |
+          echo "✅ Visitor Counter URL: https://${FUNCTION_APP_NAME}.azurewebsites.net/api/visitorcounter"
