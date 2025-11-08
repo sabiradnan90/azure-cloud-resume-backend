@@ -9,7 +9,7 @@ env:
   RESOURCE_GROUP: azure-cloud-resume-rg-c10c3c55
   FUNCTION_APP: crc-visitor-func-c10c3c55
   LOCATION: canadacentral
-  STORAGE_ACCOUNT: crcvisitorstoragec10c3c55  # must be globally unique
+  STORAGE_ACCOUNT: crcvisitorstc10c3c55  # <= 24 chars, globally unique
 
 jobs:
   deploy:
