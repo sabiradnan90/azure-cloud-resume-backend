@@ -54,12 +54,12 @@ jobs:
             --os-type Linux
         fi
 
-    - name: Setup Python and Install Dependencies
+    - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
 
-    - name: Install Python dependencies
+    - name: Install Dependencies
       run: |
         cd function_app
         if [ -f requirements.txt ]; then
@@ -78,7 +78,13 @@ jobs:
           --name $FUNCTION_APP \
           --src deploy.zip
 
-    - name: Show URL
+    - name: Show Function App URL
       run: |
         echo "✅ Function deployed!"
         echo "✅ URL: https://${FUNCTION_APP}.azurewebsites.net/api/VisitorCounter"
+
+    - name: Tail Function App Logs (optional)
+      run: |
+        az functionapp log tail \
+          --name $FUNCTION_APP \
+          --resource-group $RESOURCE_GROUP
