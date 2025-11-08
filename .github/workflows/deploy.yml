@@ -8,6 +8,8 @@ on:
 env:
   RESOURCE_GROUP: azure-cloud-resume-rg-c10c3c55
   FUNCTION_APP: crc-visitor-func-c10c3c55
+  LOCATION: canadacentral
+  STORAGE_ACCOUNT: crcvisitorstoragec10c3c55  # must be globally unique
 
 jobs:
   deploy:
@@ -21,6 +23,36 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create Resource Group if missing
+      run: |
+        if ! az group show --name $RESOURCE_GROUP >/dev/null 2>&1; then
+          az group create --name $RESOURCE_GROUP --location $LOCATION
+        fi
+
+    - name: Create Storage Account if missing
+      run: |
+        if ! az storage account show --name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
+          az storage account create \
+            --name $STORAGE_ACCOUNT \
+            --resource-group $RESOURCE_GROUP \
+            --location $LOCATION \
+            --sku Standard_LRS
+        fi
+
+    - name: Create Function App if missing
+      run: |
+        if ! az functionapp show --name $FUNCTION_APP --resource-group $RESOURCE_GROUP >/dev/null 2>&1; then
+          az functionapp create \
+            --resource-group $RESOURCE_GROUP \
+            --consumption-plan-location $LOCATION \
+            --runtime python \
+            --runtime-version 3.11 \
+            --functions-version 4 \
+            --name $FUNCTION_APP \
+            --storage-account $STORAGE_ACCOUNT \
+            --os-type Linux
+        fi
 
     - name: Zip Function App
       run: |
