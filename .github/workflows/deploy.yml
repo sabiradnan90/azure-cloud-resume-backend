@@ -47,6 +47,7 @@ jobs:
           fi
 
       - name: Get Cosmos DB Connection String
+        id: cosmos
         run: |
           echo "COSMOS_CONNECTION_STRING=$(az cosmosdb keys list --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --type connection-strings --query 'connectionStrings[0].connectionString' -o tsv)" >> $GITHUB_ENV
 
@@ -78,7 +79,7 @@ jobs:
               --plan $PLAN_NAME \
               --resource-group $RESOURCE_GROUP_NAME \
               --runtime python \
-              --runtime-version 3.11 \
+              --runtime-version 3.10 \
               --functions-version 4 \
               --os-type Linux
           fi
