@@ -88,5 +88,5 @@ jobs:
 
     - name: Show Function App URL
       run: |
-        echo "✅ Function deployed!"
-        echo "✅ URL: https://${FUNCTION_APP}.azurewebsites.net/api/VisitorCounter"
+        echo " Function deployed!"
+        echo " URL: https://${FUNCTION_APP}.azurewebsites.net/api/VisitorCounter"
