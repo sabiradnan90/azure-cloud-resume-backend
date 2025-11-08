@@ -86,12 +86,6 @@ jobs:
           --application-logging filesystem \
           --level information
 
-    - name: Tail Function App Logs
-      run: |
-        az webapp log tail \
-          --name $FUNCTION_APP \
-          --resource-group $RESOURCE_GROUP
-
     - name: Show Function App URL
       run: |
         echo "✅ Function deployed!"
