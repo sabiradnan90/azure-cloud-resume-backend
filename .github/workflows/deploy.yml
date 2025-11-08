@@ -12,12 +12,10 @@ jobs:
       FUNCTION_APP_NAME: crc-visitor-func-c10c3c55
       BLOB_ACCOUNT_NAME: crcstoragec10c3c55
       COSMOSDB_ACCOUNT_NAME: crccosmosc10c3c55
-      DATABASE_NAME: VisitorDB
-      CONTAINER_NAME: Counter
       LOCATION: canadacentral
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout Repo
       - name: Checkout Repo
         uses: actions/checkout@v4
 
@@ -27,125 +25,97 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 3️⃣ Verify Resource Group
+      # 3️⃣ Verify Resource Group (skip creation if exists)
       - name: Verify Resource Group
         run: |
-          echo "Checking existing resource group..."
-          az group show --name $RESOURCE_GROUP_NAME --output table
+          if az group show --name $RESOURCE_GROUP_NAME &> /dev/null; then
+            echo "Resource Group exists ✅"
+          else
+            echo "Resource Group not found. Creating..."
+            az group create --name $RESOURCE_GROUP_NAME --location $LOCATION
+          fi
 
-      # 4️⃣ Verify or Create Cosmos DB Resources
-      - name: Verify or Create Cosmos DB Resources
+      # 4️⃣ Verify Cosmos DB Account, Database, and Container
+      - name: Setup Cosmos DB
         run: |
-          echo "Checking Cosmos DB Account..."
-          if ! az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &>/dev/null; then
-            echo "Creating Cosmos DB account..."
-            az cosmosdb create \
-              --name $COSMOSDB_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --kind GlobalDocumentDB \
-              --locations regionName=$LOCATION failoverPriority=0 isZoneRedundant=False
-          else
+          if az cosmosdb show --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
             echo "Cosmos DB account already exists ✅"
-          fi
-
-          echo "Checking database..."
-          if ! az cosmosdb sql database show --account-name $COSMOSDB_ACCOUNT_NAME \
-            --resource-group $RESOURCE_GROUP_NAME --name $DATABASE_NAME &>/dev/null; then
-            echo "Creating database..."
-            az cosmosdb sql database create \
-              --account-name $COSMOSDB_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --name $DATABASE_NAME
           else
-            echo "Database already exists ✅"
+            az cosmosdb create --name $COSMOSDB_ACCOUNT_NAME --resource-group $RESOURCE_GROUP_NAME --locations regionName=$LOCATION --kind GlobalDocumentDB
           fi
 
-          echo "Checking container..."
-          if ! az cosmosdb sql container show --account-name $COSMOSDB_ACCOUNT_NAME \
-            --resource-group $RESOURCE_GROUP_NAME \
-            --database-name $DATABASE_NAME \
-            --name $CONTAINER_NAME &>/dev/null; then
-            echo "Creating container..."
+          # Database
+          if az cosmosdb sql database show --account-name $COSMOSDB_ACCOUNT_NAME --name VisitorDB --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+            echo "Database already exists ✅"
+          else
+            az cosmosdb sql database create --account-name $COSMOSDB_ACCOUNT_NAME --name VisitorDB --resource-group $RESOURCE_GROUP_NAME
+          fi
+
+          # Container
+          if az cosmosdb sql container show --account-name $COSMOSDB_ACCOUNT_NAME --database-name VisitorDB --name Counter --resource-group $RESOURCE_GROUP_NAME &> /dev/null; then
+            echo "Container already exists ✅"
+          else
             az cosmosdb sql container create \
               --account-name $COSMOSDB_ACCOUNT_NAME \
-              --resource-group $RESOURCE_GROUP_NAME \
-              --database-name $DATABASE_NAME \
-              --name $CONTAINER_NAME \
-              --partition-key-path "/id"
-          else
-            echo "Container already exists ✅"
+              --database-name VisitorDB \
+              --name Counter \
+              --partition-key-path /id \
+              --resource-group $RESOURCE_GROUP_NAME
           fi
 
-      # 5️⃣ Retrieve Cosmos DB Connection String
-      - name: Get Cosmos DB Connection String
-        id: cosmos
+      # 5️⃣ Fetch Cosmos DB connection string and set in Function App
+      - name: Set Cosmos DB Connection in Function App
         run: |
           CONNECTION_STRING=$(az cosmosdb keys list \
-            --type connection-strings \
             --name $COSMOSDB_ACCOUNT_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
+            --type connection-strings \
             --query "connectionStrings[0].connectionString" -o tsv)
-          echo "COSMOS_CONNECTION_STRING=$CONNECTION_STRING" >> $GITHUB_ENV
-
-      # 6️⃣ Update Function App Settings
-      - name: Configure Function App with Cosmos DB Connection
-        run: |
-          echo "Setting Cosmos DB connection string in Function App..."
           az functionapp config appsettings set \
             --name $FUNCTION_APP_NAME \
             --resource-group $RESOURCE_GROUP_NAME \
-            --settings \
-              "COSMOS_CONNECTION_STRING=${{ env.COSMOS_CONNECTION_STRING }}" \
-              "COSMOS_DB_NAME=$DATABASE_NAME" \
-              "COSMOS_CONTAINER_NAME=$CONTAINER_NAME"
+            --settings COSMOS_CONNECTION_STRING="$CONNECTION_STRING" \
+                       COSMOS_DB_NAME="VisitorDB" \
+                       COSMOS_CONTAINER_NAME="Counter"
 
-      # 7️⃣ Package Function App
+      # 6️⃣ Package Function App
       - name: Package Function App
-        run: |
-          cd function_app
-          zip -r ../functionapp.zip .
-          cd ..
+        run: zip -r functionapp.zip function_app/*
 
-      # 8️⃣ Deploy Function App
+      # 7️⃣ Deploy Function App
       - name: Deploy Function App
         run: |
-          echo "Deploying Function App..."
           az functionapp deployment source config-zip \
             --resource-group $RESOURCE_GROUP_NAME \
             --name $FUNCTION_APP_NAME \
             --src functionapp.zip
 
-      # 9️⃣ Upload Static Files to Blob Storage
+      # 8️⃣ Upload Static Files to Blob Storage
       - name: Upload Static Files
         run: |
-          echo "Uploading static website files..."
           az storage blob upload-batch \
             --account-name $BLOB_ACCOUNT_NAME \
-            --destination '$web' \
             --source static \
+            --destination '$web' \
             --overwrite \
             --auth-mode login
 
-      # 🔟 Get Function URL (fixed command)
-      - name: Get Function URL
+      # 9️⃣ Fetch Function App URL
+      - name: Fetch Function App URL
         run: |
-          echo "Fetching Function URL..."
-          az rest \
-            --method get \
-            --url "https://management.azure.com/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RESOURCE_GROUP_NAME/providers/Microsoft.Web/sites/$FUNCTION_APP_NAME/functions?api-version=2022-03-01" \
-            --query "value[].properties.invokeUrlTemplate" \
-            --output tsv
+          FUNC_URL=$(az functionapp show \
+            --name $FUNCTION_APP_NAME \
+            --resource-group $RESOURCE_GROUP_NAME \
+            --query "defaultHostName" -o tsv)
+          echo "Function App URL: https://$FUNC_URL"
+          echo "FUNCTION_APP_URL=https://$FUNC_URL" >> $GITHUB_ENV
 
-      # 🧩 Deployment Summary
-      - name: Deployment Summary
+      # 🔟 Verify Deployment
+      - name: Verify Deployment
         run: |
-          echo "✅ Deployment Completed!"
+          echo "✅ Deployment Summary"
           echo "Resource Group: $RESOURCE_GROUP_NAME"
           echo "Function App: $FUNCTION_APP_NAME"
+          echo "Function App URL: $FUNCTION_APP_URL"
           echo "Blob Account: $BLOB_ACCOUNT_NAME"
           echo "Cosmos DB: $COSMOSDB_ACCOUNT_NAME"
-          echo ""
-          echo "🎯 Visit Function App at:"
-          echo "https://$FUNCTION_APP_NAME.azurewebsites.net/api/VisitorCounter"
-          echo "🌐 Static Website:"
-          echo "https://$BLOB_ACCOUNT_NAME.z13.web.core.windows.net/"
