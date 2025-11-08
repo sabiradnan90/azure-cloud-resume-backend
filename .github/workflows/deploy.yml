@@ -78,13 +78,20 @@ jobs:
           --name $FUNCTION_APP \
           --src deploy.zip
 
+    - name: Enable Logging
+      run: |
+        az webapp log config \
+          --name $FUNCTION_APP \
+          --resource-group $RESOURCE_GROUP \
+          --application-logging true
+
+    - name: Tail Function App Logs
+      run: |
+        az webapp log tail \
+          --name $FUNCTION_APP \
+          --resource-group $RESOURCE_GROUP
+
     - name: Show Function App URL
       run: |
         echo "✅ Function deployed!"
         echo "✅ URL: https://${FUNCTION_APP}.azurewebsites.net/api/VisitorCounter"
-
-    - name: Tail Function App Logs (optional)
-      run: |
-        az functionapp log tail \
-          --name $FUNCTION_APP \
-          --resource-group $RESOURCE_GROUP
